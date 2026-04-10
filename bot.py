@@ -2,12 +2,11 @@ import re
 import os
 import asyncio
 from google import genai
-from google.genai import types
 from telethon import TelegramClient, events
+from telethon.tl.types import Channel
 
 API_ID = int(os.environ.get('API_ID'))
 API_HASH = os.environ.get('API_HASH')
-BOT_TOKEN = os.environ.get('BOT_TOKEN')
 GEMINI_KEY = os.environ.get('GEMINI_KEY')
 
 MY_SHORT_KEY = "Zx22cv00bnm"
@@ -15,7 +14,7 @@ MY_CHANNEL = '@asdfgh051'
 
 gemini_client = genai.Client(api_key=GEMINI_KEY)
 
-client = TelegramClient('deals_spy_session', API_ID, API_HASH)
+client = TelegramClient('user_session', API_ID, API_HASH)
 
 
 def make_affiliate_link(original_url: str) -> str:
@@ -54,12 +53,10 @@ async def handler(event):
 
     chat = await event.get_chat()
 
-    from telethon.tl.types import Channel, Chat
-    if not isinstance(chat, (Channel, Chat)):
+    if not isinstance(chat, Channel):
         return
 
-    is_broadcast = getattr(chat, 'broadcast', False)
-    if not is_broadcast:
+    if not getattr(chat, 'broadcast', False):
         return
 
     original_text = event.message.text
@@ -77,6 +74,7 @@ async def handler(event):
         my_aff_link = make_affiliate_link(url)
         processed_text = processed_text.replace(url, my_aff_link)
 
+    print(f"🔗 Found deal in '{getattr(chat, 'title', event.chat_id)}', rewriting...")
     final_english_post = await rewrite_to_english_marketing(processed_text)
 
     try:
@@ -86,17 +84,17 @@ async def handler(event):
             file=event.message.media,
             link_preview=True
         )
-        print(f"✅ Post from '{getattr(chat, 'title', event.chat_id)}' forwarded and converted to English!")
+        print(f"✅ Posted to {MY_CHANNEL} successfully!")
     except Exception as e:
         print(f"❌ Error sending message: {e}")
 
 
 async def main():
-    await client.start(bot_token=BOT_TOKEN)
+    await client.start()
     me = await client.get_me()
-    print(f"🤖 Deals Spy Bot is LIVE as @{me.username}")
-    print(f"📡 Monitoring all subscribed broadcast channels for AliExpress deals...")
-    print(f"📢 Posting to: {MY_CHANNEL}")
+    print(f"✅ Logged in as: {me.first_name} (@{me.username})")
+    print(f"📡 Monitoring ALL subscribed broadcast channels for AliExpress deals...")
+    print(f"📢 Posting deals to: {MY_CHANNEL}")
     await client.run_until_disconnected()
 
 
