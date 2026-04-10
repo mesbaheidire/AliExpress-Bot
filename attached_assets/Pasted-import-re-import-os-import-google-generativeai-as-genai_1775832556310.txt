@@ -1,0 +1,86 @@
+import re
+import os
+import google.generativeai as genai
+from telethon import TelegramClient, events
+
+# --- 1. إعدادات المفاتيح (يتم جلبها من Secrets في Replit للأمان) ---
+API_ID = os.environ.get('API_ID')
+API_HASH = os.environ.get('API_HASH')
+BOT_TOKEN = os.environ.get('BOT_TOKEN')
+GEMINI_KEY = os.environ.get('GEMINI_KEY')
+
+# --- 2. إعدادات الأفلييت والقنوات ---
+MY_SHORT_KEY = "Zx22cv00bnm"
+SOURCE_CHANNELS = ['@channel_username_1', '@channel_username_2'] # القنوات التي تراقبها
+MY_CHANNEL = '@your_english_channel' # قناتك الإنجليزية
+
+# --- 3. تهيئة الذكاء الاصطناعي ---
+genai.configure(api_key=GEMINI_KEY)
+ai_model = genai.GenerativeModel('gemini-pro')
+
+# --- 4. تهيئة عميل تلجرام ---
+client = TelegramClient('deals_spy_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+
+def make_affiliate_link(original_url):
+    """تحويل أي رابط منتج إلى رابط الأفلييت الخاص بك"""
+    base_url = "https://s.click.aliexpress.com/deep_link.htm"
+    # تنظيف الرابط من أي تتبع قديم قبل التحويل
+    clean_url = original_url.split('?')[0]
+    return f"{base_url}?aff_short_key={MY_SHORT_KEY}&dl_target_url={clean_url}"
+
+async def rewrite_to_english_marketing(text):
+    """استخدام Gemini لتحويل المحتوى إلى إنجليزية تسويقية جذابة"""
+    prompt = f"""
+    Context: You are a professional English affiliate marketer for AliExpress deals.
+    Task: Rewrite the following deal description into high-converting, professional, and catchy ENGLISH for a Telegram audience.
+    Guidelines:
+    - Use attractive shopping emojis.
+    - Highlight the product benefits and the deal.
+    - Make the call to action clear.
+    - KEEP the links exactly as provided in the processed text.
+    - Ensure the final output is ONLY in English.
+    
+    Original Message:
+    {text}
+    """
+    try:
+        response = ai_model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        print(f"Gemini AI Error: {e}")
+        return text # في حال الخطأ نرسل النص كما هو
+
+@client.on(events.NewMessage(chats=SOURCE_CHANNELS))
+async def handler(event):
+    if not event.message.text:
+        return
+
+    original_text = event.message.text
+    
+    # استخراج روابط علي إكسبريس (روابط مباشرة أو مختصرة)
+    urls = re.findall(r'(https?://(?:[^\s]+aliexpress\.com|[^\s]+s\.click\.aliexpress\.com)[^\s]*)', original_text)
+    
+    processed_text = original_text
+    if urls:
+        for url in urls:
+            # تحويل الرابط إلى رابطك الخاص
+            my_aff_link = make_affiliate_link(url)
+            processed_text = processed_text.replace(url, my_aff_link)
+        
+        # إعادة صياغة المنشور بالكامل للإنجليزية بواسطة الذكاء الاصطناعي
+        final_english_post = await rewrite_to_english_marketing(processed_text)
+        
+        # النشر في قناتك مع الحفاظ على الصورة أو الفيديو الأصلي
+        try:
+            await client.send_message(
+                MY_CHANNEL, 
+                final_english_post, 
+                file=event.message.media,
+                link_preview=True
+            )
+            print("✅ Post forwarded and converted to English successfully!")
+        except Exception as e:
+            print(f"Error sending message: {e}")
+
+print("🤖 Spy & Affiliate Bot is LIVE... Monitoring channels for deals.")
+client.run_until_disconnected()
