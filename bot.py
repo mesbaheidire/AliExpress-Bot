@@ -13,7 +13,11 @@ GEMINI_KEY = os.environ.get('GEMINI_KEY')
 MY_SHORT_KEY = "Zx22cv00bnm"
 MY_CHANNEL = '@asdfgh051'
 PRICE_BOT_LINK = "https://t.me/Aliprice_bot"
-ARABIC_FOOTER = f"\n\n🏷️ للحصول على تخفيض إضافي استخدم بوت التخفيضات:\n{PRICE_BOT_LINK}"
+ENGLISH_FOOTER = (
+    f"\n\n💡 Don't forget to use the bot to get the best offers and discounts "
+    f"for various AliExpress products!\n🤖 {PRICE_BOT_LINK}"
+    f"\n\n#AliExpress #Deals #Shopping #Discounts #AliExpressDeals"
+)
 
 gemini_client = genai.Client(api_key=GEMINI_KEY)
 
@@ -58,14 +62,18 @@ def replace_affiliate_links(text: str) -> tuple[str, list[str]]:
 
 async def rewrite_to_english_marketing(text: str) -> str:
     """Use Gemini to rewrite deal text as catchy English marketing copy."""
-    prompt = f"""Context: You are a professional English affiliate marketer for AliExpress deals.
-Task: Rewrite the following deal description into high-converting, professional, and catchy ENGLISH for a Telegram audience.
-Guidelines:
-- Use attractive shopping emojis.
-- Highlight the product benefits and the deal.
-- Make the call to action clear.
-- KEEP the links exactly as provided in the processed text.
-- Ensure the final output is ONLY in English.
+    prompt = f"""You are a professional English affiliate marketer for AliExpress deals.
+
+Task: Rewrite the message below into high-converting, catchy ENGLISH for a Telegram shopping channel.
+
+Rules (strictly follow all of them):
+- Output MUST be 100% in English. Do NOT include any Arabic, Chinese, or any other language — not even a single word.
+- If the original text is in another language, fully translate and rewrite it in English.
+- Use attractive shopping emojis throughout.
+- Highlight the product name, key benefits, and the deal/discount clearly.
+- End with a strong call to action (e.g. "Grab yours now!", "Limited time deal!").
+- KEEP every link exactly as it appears in the message — do not modify, shorten, or remove any URL.
+- Do NOT add hashtags — they will be added separately.
 
 Original Message:
 {text}"""
@@ -113,7 +121,7 @@ async def handle_saved_messages(event):
         print("⚠️ Manual forward received but no AliExpress links found — skipping.")
         return
 
-    final_text = processed_text + ARABIC_FOOTER
+    final_text = processed_text + ENGLISH_FOOTER
 
     print(f"📋 Manual forward — {len(urls)} link(s) converted, posting to {MY_CHANNEL}...")
 
@@ -146,7 +154,7 @@ async def handle_channel_post(event, chat):
     try:
         await client.send_message(
             MY_CHANNEL,
-            final_english_post,
+            final_english_post + ENGLISH_FOOTER,
             file=get_real_media(event.message),
             link_preview=True
         )
