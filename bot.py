@@ -240,7 +240,7 @@ async def main():
     signal.signal(signal.SIGINT, _handle_sigterm)
 
     await client.start()
-    print(f"MY_SESSION_STR: {client.session.save()}")
+    print(f"MY_SESSION_STR: {StringSession.save(client.session)}")
     me = await client.get_me()
     MY_USER_ID = me.id
     print(f"✅ Logged in as: {me.first_name} (@{me.username}) — ID: {MY_USER_ID}")
@@ -271,6 +271,7 @@ async def main():
 if __name__ == '__main__':
     try:
         asyncio.run(main())
+        print("MY_SECRET_KEY:", client.session.save())
     except (KeyboardInterrupt, SystemExit):
         pass
     except Exception as e:
