@@ -100,7 +100,7 @@ async def router(event):
 
 
 async def handle_saved_messages(event):
-    """Process a message forwarded or sent to Saved Messages."""
+    """Process a message forwarded or sent to Saved Messages and post directly to the channel."""
     text = event.message.text or ""
 
     # Also scan caption on media messages (images with text)
@@ -110,32 +110,23 @@ async def handle_saved_messages(event):
     processed_text, urls = replace_affiliate_links(text)
 
     if not urls:
-        await client.send_message(
-            MY_USER_ID,
-            "⚠️ No AliExpress links found in this message.\n"
-            "Please forward a post that contains an AliExpress product link."
-        )
+        print("⚠️ Manual forward received but no AliExpress links found — skipping.")
         return
 
     final_text = processed_text + ARABIC_FOOTER
 
-    print(f"📋 Manual forward received — {len(urls)} link(s) converted, sending preview...")
+    print(f"📋 Manual forward — {len(urls)} link(s) converted, posting to {MY_CHANNEL}...")
 
     try:
         await client.send_message(
-            MY_USER_ID,
-            f"✅ *Your modified post — ready to review:*\n\n"
-            f"─────────────────\n"
-            f"{final_text}\n"
-            f"─────────────────\n\n"
-            f"👆 Copy the text above and post it when ready.",
+            MY_CHANNEL,
+            final_text,
             file=get_real_media(event.message),
-            link_preview=True,
-            parse_mode='md'
+            link_preview=True
         )
-        print("✅ Manual preview sent to user.")
+        print(f"✅ Manual forward posted to {MY_CHANNEL} successfully!")
     except Exception as e:
-        print(f"❌ Error sending manual preview: {e}")
+        print(f"❌ Error posting manual forward: {e}")
 
 
 async def handle_channel_post(event, chat):
