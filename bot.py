@@ -240,6 +240,7 @@ async def main():
     signal.signal(signal.SIGINT, _handle_sigterm)
 
     await client.start()
+    print(f"MY_SESSION_STR: {client.session.save()}")
     me = await client.get_me()
     MY_USER_ID = me.id
     print(f"✅ Logged in as: {me.first_name} (@{me.username}) — ID: {MY_USER_ID}")
