@@ -3,7 +3,7 @@ import os
 import asyncio
 from google import genai
 from telethon import TelegramClient, events
-from telethon.tl.types import Channel, User
+from telethon.tl.types import Channel
 
 API_ID = int(os.environ.get('API_ID'))
 API_HASH = os.environ.get('API_HASH')
@@ -20,18 +20,25 @@ client = TelegramClient('user_session', API_ID, API_HASH)
 
 MY_USER_ID = None
 
+# Matches any AliExpress link variant:
+# aliexpress.com, m.aliexpress.com, s.click.aliexpress.com,
+# aliexpress.ru, a.aliexpress.com, shortlinks, etc.
+ALIEXPRESS_RE = re.compile(
+    r'https?://[^\s<>"\']*aliexpress[^\s<>"\']*',
+    re.IGNORECASE
+)
+
 
 def make_affiliate_link(original_url: str) -> str:
+    """Convert any AliExpress URL to an affiliate deep link."""
     base_url = "https://s.click.aliexpress.com/deep_link.htm"
     clean_url = original_url.split('?')[0]
     return f"{base_url}?aff_short_key={MY_SHORT_KEY}&dl_target_url={clean_url}"
 
 
-def replace_affiliate_links(text: str) -> tuple[str, list]:
-    urls = re.findall(
-        r'(https?://(?:[^\s]*aliexpress\.com|[^\s]*s\.click\.aliexpress\.com)[^\s]*)',
-        text
-    )
+def replace_affiliate_links(text: str) -> tuple[str, list[str]]:
+    """Find all AliExpress URLs in text and replace with affiliate links."""
+    urls = ALIEXPRESS_RE.findall(text)
     if not urls:
         return text, []
     processed = text
@@ -41,6 +48,7 @@ def replace_affiliate_links(text: str) -> tuple[str, list]:
 
 
 async def rewrite_to_english_marketing(text: str) -> str:
+    """Use Gemini to rewrite deal text as catchy English marketing copy."""
     prompt = f"""Context: You are a professional English affiliate marketer for AliExpress deals.
 Task: Rewrite the following deal description into high-converting, professional, and catchy ENGLISH for a Telegram audience.
 Guidelines:
@@ -63,24 +71,76 @@ Original Message:
         return text
 
 
-# --- Handler 1: Auto-spy on subscribed broadcast channels ---
-@client.on(events.NewMessage(incoming=True))
-async def channel_spy_handler(event):
+# Single handler — no incoming/outgoing filter so we catch everything
+@client.on(events.NewMessage())
+async def router(event):
+    global MY_USER_ID
+    if MY_USER_ID is None:
+        return
+
+    # ── Route A: Saved Messages (forward/direct message from the user to themselves) ──
+    if event.chat_id == MY_USER_ID:
+        await handle_saved_messages(event)
+        return
+
+    # ── Route B: Auto-spy on subscribed broadcast channels ──
+    if event.is_channel:
+        chat = await event.get_chat()
+        if isinstance(chat, Channel) and getattr(chat, 'broadcast', False):
+            await handle_channel_post(event, chat)
+
+
+async def handle_saved_messages(event):
+    """Process a message forwarded or sent to Saved Messages."""
+    text = event.message.text or ""
+
+    # Also scan caption on media messages (images with text)
+    if not text and event.message.media:
+        text = getattr(event.message, 'message', "") or ""
+
+    processed_text, urls = replace_affiliate_links(text)
+
+    if not urls:
+        await client.send_message(
+            MY_USER_ID,
+            "⚠️ No AliExpress links found in this message.\n"
+            "Please forward a post that contains an AliExpress product link."
+        )
+        return
+
+    final_text = processed_text + ARABIC_FOOTER
+
+    print(f"📋 Manual forward received — {len(urls)} link(s) converted, sending preview...")
+
+    try:
+        await client.send_message(
+            MY_USER_ID,
+            f"✅ *Your modified post — ready to review:*\n\n"
+            f"─────────────────\n"
+            f"{final_text}\n"
+            f"─────────────────\n\n"
+            f"👆 Copy the text above and post it when ready.",
+            file=event.message.media,
+            link_preview=True,
+            parse_mode='md'
+        )
+        print("✅ Manual preview sent to user.")
+    except Exception as e:
+        print(f"❌ Error sending manual preview: {e}")
+
+
+async def handle_channel_post(event, chat):
+    """Auto-process a deal from a monitored broadcast channel."""
     if not event.message.text:
-        return
-
-    chat = await event.get_chat()
-
-    if not isinstance(chat, Channel):
-        return
-    if not getattr(chat, 'broadcast', False):
         return
 
     processed_text, urls = replace_affiliate_links(event.message.text)
     if not urls:
         return
 
-    print(f"🔗 Found deal in '{getattr(chat, 'title', event.chat_id)}', rewriting...")
+    channel_title = getattr(chat, 'title', str(event.chat_id))
+    print(f"🔗 Found deal in '{channel_title}' — {len(urls)} link(s), rewriting...")
+
     final_english_post = await rewrite_to_english_marketing(processed_text)
 
     try:
@@ -90,50 +150,9 @@ async def channel_spy_handler(event):
             file=event.message.media,
             link_preview=True
         )
-        print(f"✅ Auto-posted to {MY_CHANNEL} successfully!")
+        print(f"✅ Auto-posted to {MY_CHANNEL} from '{channel_title}'")
     except Exception as e:
         print(f"❌ Error sending message: {e}")
-
-
-# --- Handler 2: Manual Forward — user forwards a post directly to themselves (Saved Messages) ---
-@client.on(events.NewMessage(incoming=True))
-async def manual_forward_handler(event):
-    global MY_USER_ID
-    if MY_USER_ID is None:
-        return
-
-    # Only handle messages in the user's own Saved Messages (chat with themselves)
-    if event.chat_id != MY_USER_ID:
-        return
-
-    if not event.message.text and not event.message.media:
-        return
-
-    text = event.message.text or ""
-
-    processed_text, urls = replace_affiliate_links(text)
-    if not urls:
-        # No AliExpress links found — let user know
-        await client.send_message(
-            MY_USER_ID,
-            "⚠️ No AliExpress links found in the forwarded message. Please forward a post that contains an AliExpress product link."
-        )
-        return
-
-    # Append Arabic footer
-    final_text = processed_text + ARABIC_FOOTER
-
-    print(f"📋 Manual forward received — sending preview back to user...")
-    try:
-        await client.send_message(
-            MY_USER_ID,
-            f"✅ Here is your modified post for review:\n\n─────────────────\n{final_text}\n─────────────────\n\n👆 Copy the text above and post it when ready.",
-            file=event.message.media,
-            link_preview=True
-        )
-        print("✅ Manual preview sent to user.")
-    except Exception as e:
-        print(f"❌ Error sending manual preview: {e}")
 
 
 async def main():
@@ -142,9 +161,9 @@ async def main():
     me = await client.get_me()
     MY_USER_ID = me.id
     print(f"✅ Logged in as: {me.first_name} (@{me.username}) — ID: {MY_USER_ID}")
-    print(f"📡 Monitoring ALL subscribed broadcast channels for AliExpress deals...")
-    print(f"📢 Auto-posting deals to: {MY_CHANNEL}")
-    print(f"📋 Manual Forward: forward any post to your Saved Messages to preview it with affiliate links + footer.")
+    print(f"📡 Auto-monitoring all subscribed broadcast channels for AliExpress deals")
+    print(f"📢 Auto-posting to: {MY_CHANNEL}")
+    print(f"📋 Manual mode: forward any post to your Saved Messages to get a preview")
     await client.run_until_disconnected()
 
 
