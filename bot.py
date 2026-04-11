@@ -4,11 +4,13 @@ import asyncio
 import signal
 from google import genai
 from telethon import TelegramClient, events
+from telethon.sessions import StringSession
 from telethon.tl.types import Channel, MessageMediaPhoto, MessageMediaDocument
 
 API_ID = int(os.environ.get('API_ID'))
 API_HASH = os.environ.get('API_HASH')
 GEMINI_KEY = os.environ.get('GEMINI_KEY')
+SESSION_STRING = os.environ.get('SESSION_STRING', '')
 
 MY_SHORT_KEY = "Zx22cv00bnm"
 MY_CHANNEL = '@asdfgh051'
@@ -20,7 +22,12 @@ ENGLISH_FOOTER = (
 )
 
 gemini_client = genai.Client(api_key=GEMINI_KEY)
-client = TelegramClient('user_session', API_ID, API_HASH)
+
+# Use StringSession if SESSION_STRING env var is set (e.g. on Render),
+# otherwise fall back to the local session file (Replit dev environment).
+_session = StringSession(SESSION_STRING) if SESSION_STRING else 'user_session'
+client = TelegramClient(_session, API_ID, API_HASH)
+
 MY_USER_ID = None
 
 # ── Regex patterns ──────────────────────────────────────────────────────────
