@@ -1,6 +1,7 @@
 import re
 import os
 import asyncio
+import signal
 from google import genai
 from telethon import TelegramClient, events
 from telethon.tl.types import Channel, MessageMediaPhoto, MessageMediaDocument
@@ -176,4 +177,10 @@ async def main():
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        print("🛑 Bot stopped gracefully.")
+    except Exception as e:
+        print(f"💥 Unexpected error: {e}")
+        raise
