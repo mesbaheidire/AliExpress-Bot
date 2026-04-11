@@ -3,7 +3,7 @@ import os
 import asyncio
 from google import genai
 from telethon import TelegramClient, events
-from telethon.tl.types import Channel
+from telethon.tl.types import Channel, MessageMediaPhoto, MessageMediaDocument
 
 API_ID = int(os.environ.get('API_ID'))
 API_HASH = os.environ.get('API_HASH')
@@ -27,6 +27,14 @@ ALIEXPRESS_RE = re.compile(
     r'https?://[^\s<>"\']*aliexpress[^\s<>"\']*',
     re.IGNORECASE
 )
+
+
+def get_real_media(message):
+    """Return media only if it's a real file (photo/video/doc), not a web preview."""
+    media = message.media
+    if isinstance(media, (MessageMediaPhoto, MessageMediaDocument)):
+        return media
+    return None
 
 
 def make_affiliate_link(original_url: str) -> str:
@@ -120,7 +128,7 @@ async def handle_saved_messages(event):
             f"{final_text}\n"
             f"─────────────────\n\n"
             f"👆 Copy the text above and post it when ready.",
-            file=event.message.media,
+            file=get_real_media(event.message),
             link_preview=True,
             parse_mode='md'
         )
@@ -147,7 +155,7 @@ async def handle_channel_post(event, chat):
         await client.send_message(
             MY_CHANNEL,
             final_english_post,
-            file=event.message.media,
+            file=get_real_media(event.message),
             link_preview=True
         )
         print(f"✅ Auto-posted to {MY_CHANNEL} from '{channel_title}'")
