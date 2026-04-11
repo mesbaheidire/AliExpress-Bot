@@ -20,18 +20,46 @@ ENGLISH_FOOTER = (
 )
 
 gemini_client = genai.Client(api_key=GEMINI_KEY)
-
 client = TelegramClient('user_session', API_ID, API_HASH)
-
 MY_USER_ID = None
 
-# Matches any AliExpress link variant:
-# aliexpress.com, m.aliexpress.com, s.click.aliexpress.com,
-# aliexpress.ru, a.aliexpress.com, shortlinks, etc.
+# ── Regex patterns ──────────────────────────────────────────────────────────
+
 ALIEXPRESS_RE = re.compile(
     r'https?://[^\s<>"\']*aliexpress[^\s<>"\']*',
     re.IGNORECASE
 )
+
+# All Arabic Unicode blocks:
+# 0600-06FF  Arabic core
+# 0750-077F  Arabic Supplement
+# 08A0-08FF  Arabic Extended-A
+# FB50-FDFF  Arabic Presentation Forms-A
+# FE70-FEFF  Arabic Presentation Forms-B
+ARABIC_RE = re.compile(
+    r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]+'
+)
+
+
+# ── Helpers ─────────────────────────────────────────────────────────────────
+
+def has_arabic(text: str) -> bool:
+    """Return True if the text contains any Arabic characters."""
+    return bool(ARABIC_RE.search(text))
+
+
+def clean_text(text: str) -> str:
+    """
+    Hard-remove every Arabic character from the text.
+    URLs are never touched (they never contain Arabic).
+    Cleans up leftover double-spaces/newlines afterwards.
+    """
+    cleaned = ARABIC_RE.sub('', text)
+    # Collapse multiple blank lines left after stripping
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+    # Collapse multiple spaces
+    cleaned = re.sub(r'  +', ' ', cleaned)
+    return cleaned.strip()
 
 
 def get_real_media(message):
@@ -60,20 +88,25 @@ def replace_affiliate_links(text: str) -> tuple[str, list[str]]:
     return processed, urls
 
 
+# ── Gemini rewrite ───────────────────────────────────────────────────────────
+
 async def rewrite_to_english_marketing(text: str) -> str:
-    """Use Gemini to rewrite deal text as catchy English marketing copy."""
+    """
+    Use Gemini to produce 100% English marketing copy.
+    Afterwards, strip_arabic is applied as a hard safety net.
+    """
     prompt = f"""You are a professional English affiliate marketer for AliExpress deals.
 
 Task: Rewrite the message below into high-converting, catchy ENGLISH for a Telegram shopping channel.
 
-Rules (strictly follow all of them):
-- Output MUST be 100% in English. Do NOT include any Arabic, Chinese, or any other language — not even a single word.
-- If the original text is in another language, fully translate and rewrite it in English.
-- Use attractive shopping emojis throughout.
-- Highlight the product name, key benefits, and the deal/discount clearly.
-- End with a strong call to action (e.g. "Grab yours now!", "Limited time deal!").
-- KEEP every link exactly as it appears in the message — do not modify, shorten, or remove any URL.
-- Do NOT add hashtags — they will be added separately.
+Rules — follow every one strictly:
+1. The output MUST be 100% English. Zero Arabic, Chinese, or any other non-English language — not even a single character.
+2. If the original message is in Arabic or any other language, translate it fully into English first, then rewrite it.
+3. Use attractive shopping emojis throughout.
+4. Highlight the product name, key benefits, and the deal/discount clearly.
+5. End with a strong English call to action (e.g. "Grab yours now! ⚡", "Limited time deal! 🔥").
+6. KEEP every URL exactly as it appears — do not modify, shorten, or remove any link.
+7. Do NOT add hashtags — they are added separately.
 
 Original Message:
 {text}"""
@@ -82,60 +115,75 @@ Original Message:
             model='gemini-1.5-flash',
             contents=prompt
         )
-        return response.text
+        result = response.text
     except Exception as e:
         print(f"Gemini AI Error: {e}")
-        return text
+        result = text
+
+    # Hard safety net — strip any Arabic that slipped through
+    if has_arabic(result):
+        print("⚠️ Arabic detected in Gemini output — stripping...")
+        result = clean_text(result)
+
+    return result
 
 
-# Single handler — no incoming/outgoing filter so we catch everything
+# ── Router ───────────────────────────────────────────────────────────────────
+
 @client.on(events.NewMessage())
 async def router(event):
     global MY_USER_ID
     if MY_USER_ID is None:
         return
 
-    # ── Route A: Saved Messages (forward/direct message from the user to themselves) ──
+    # Route A: Saved Messages — manual forward
     if event.chat_id == MY_USER_ID:
         await handle_saved_messages(event)
         return
 
-    # ── Route B: Auto-spy on subscribed broadcast channels ──
+    # Route B: Auto-spy broadcast channels
     if event.is_channel:
         chat = await event.get_chat()
         if isinstance(chat, Channel) and getattr(chat, 'broadcast', False):
             await handle_channel_post(event, chat)
 
 
-async def handle_saved_messages(event):
-    """Process a message forwarded or sent to Saved Messages and post directly to the channel."""
-    text = event.message.text or ""
+# ── Saved Messages handler ────────────────────────────────────────────────────
 
-    # Also scan caption on media messages (images with text)
-    if not text and event.message.media:
-        text = getattr(event.message, 'message', "") or ""
+async def handle_saved_messages(event):
+    """
+    Process a manual forward in Saved Messages.
+    Always runs through Gemini (translates Arabic if present),
+    then posts the clean English result directly to the channel.
+    """
+    text = event.message.text or getattr(event.message, 'message', '') or ''
 
     processed_text, urls = replace_affiliate_links(text)
 
     if not urls:
-        print("⚠️ Manual forward received but no AliExpress links found — skipping.")
+        print("⚠️ Manual forward — no AliExpress links found, skipping.")
         return
 
-    final_text = processed_text + ENGLISH_FOOTER
+    print(f"📋 Manual forward — {len(urls)} link(s), rewriting via Gemini...")
+    final_text = await rewrite_to_english_marketing(processed_text)
 
-    print(f"📋 Manual forward — {len(urls)} link(s) converted, posting to {MY_CHANNEL}...")
+    # Extra safety: strip any remaining Arabic before posting
+    if has_arabic(final_text):
+        final_text = clean_text(final_text)
 
     try:
         await client.send_message(
             MY_CHANNEL,
-            final_text,
+            final_text + ENGLISH_FOOTER,
             file=get_real_media(event.message),
             link_preview=True
         )
-        print(f"✅ Manual forward posted to {MY_CHANNEL} successfully!")
+        print(f"✅ Manual forward posted to {MY_CHANNEL}!")
     except Exception as e:
         print(f"❌ Error posting manual forward: {e}")
 
+
+# ── Channel auto-spy handler ─────────────────────────────────────────────────
 
 async def handle_channel_post(event, chat):
     """Auto-process a deal from a monitored broadcast channel."""
@@ -149,12 +197,16 @@ async def handle_channel_post(event, chat):
     channel_title = getattr(chat, 'title', str(event.chat_id))
     print(f"🔗 Found deal in '{channel_title}' — {len(urls)} link(s), rewriting...")
 
-    final_english_post = await rewrite_to_english_marketing(processed_text)
+    final_text = await rewrite_to_english_marketing(processed_text)
+
+    # Extra safety: strip any remaining Arabic before posting
+    if has_arabic(final_text):
+        final_text = clean_text(final_text)
 
     try:
         await client.send_message(
             MY_CHANNEL,
-            final_english_post + ENGLISH_FOOTER,
+            final_text + ENGLISH_FOOTER,
             file=get_real_media(event.message),
             link_preview=True
         )
@@ -162,6 +214,8 @@ async def handle_channel_post(event, chat):
     except Exception as e:
         print(f"❌ Error sending message: {e}")
 
+
+# ── Startup & reconnect loop ─────────────────────────────────────────────────
 
 _stop = False
 
@@ -184,9 +238,9 @@ async def main():
     print(f"✅ Logged in as: {me.first_name} (@{me.username}) — ID: {MY_USER_ID}")
     print(f"📡 Auto-monitoring all subscribed broadcast channels for AliExpress deals")
     print(f"📢 Auto-posting to: {MY_CHANNEL}")
-    print(f"📋 Manual mode: forward any post to your Saved Messages to get a preview")
+    print(f"📋 Manual mode: forward any post to your Saved Messages to trigger posting")
 
-    RECONNECT_DELAY = 10  # seconds between reconnection attempts
+    RECONNECT_DELAY = 10
 
     while not _stop:
         try:
