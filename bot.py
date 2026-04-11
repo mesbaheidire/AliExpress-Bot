@@ -164,8 +164,21 @@ async def handle_channel_post(event, chat):
         print(f"❌ Error sending message: {e}")
 
 
+_stop = False
+
+
+def _handle_sigterm(*_):
+    global _stop
+    _stop = True
+    print("🛑 SIGTERM received — shutting down...")
+
+
 async def main():
-    global MY_USER_ID
+    global MY_USER_ID, _stop
+
+    signal.signal(signal.SIGTERM, _handle_sigterm)
+    signal.signal(signal.SIGINT, _handle_sigterm)
+
     await client.start()
     me = await client.get_me()
     MY_USER_ID = me.id
@@ -173,14 +186,32 @@ async def main():
     print(f"📡 Auto-monitoring all subscribed broadcast channels for AliExpress deals")
     print(f"📢 Auto-posting to: {MY_CHANNEL}")
     print(f"📋 Manual mode: forward any post to your Saved Messages to get a preview")
-    await client.run_until_disconnected()
+
+    RECONNECT_DELAY = 10  # seconds between reconnection attempts
+
+    while not _stop:
+        try:
+            if not client.is_connected():
+                print("🔄 Reconnecting to Telegram...")
+                await client.connect()
+            await client.run_until_disconnected()
+        except (KeyboardInterrupt, SystemExit):
+            break
+        except Exception as e:
+            if _stop:
+                break
+            print(f"⚠️ Connection lost: {e} — retrying in {RECONNECT_DELAY}s...")
+            await asyncio.sleep(RECONNECT_DELAY)
+
+    await client.disconnect()
+    print("🛑 Bot stopped gracefully.")
 
 
 if __name__ == '__main__':
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        print("🛑 Bot stopped gracefully.")
+        pass
     except Exception as e:
-        print(f"💥 Unexpected error: {e}")
+        print(f"💥 Fatal error: {e}")
         raise
