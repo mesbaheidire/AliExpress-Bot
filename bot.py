@@ -25,7 +25,7 @@ gemini_client = genai.Client(api_key=GEMINI_KEY)
 
 # Use StringSession if SESSION_STRING env var is set (e.g. on Render),
 # otherwise fall back to the local session file (Replit dev environment).
-_session = StringSession(SESSION_STRING) if SESSION_STRING else 'user_session'
+_session = StringSession(SESSION_STRING)
 client = TelegramClient(_session, API_ID, API_HASH)
 
 MY_USER_ID = None
