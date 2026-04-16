@@ -71,5 +71,21 @@ if __name__ == '__main__':
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         loop.run_until_complete(main())
+@client.on(events.NewMessage(chats=SOURCE_CHANNELS))
+async def handler(event):
+    print(f"🔄 تم اكتشاف رسالة جديدة من: {event.chat_id}")
+    
+    if not event.raw_text:
+        print("❌ الرسالة فارغة")
+        return
+    
+    # البحث عن روابط علي اكسبريس
+    links = re.findall(r'https?://[^\s]+aliexpress[^\s]+', event.raw_text)
+    
+    if not links:
+        print("ℹ️ الرسالة لا تحتوي على روابط AliExpress")
+        return
 
+    print(f"🔗 تم العثور على {len(links)} رابط، جاري المعالجة...")
+    # ... بقية الكود الخاص بـ Gemini والنشر
 
