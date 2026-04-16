@@ -88,4 +88,31 @@ async def handler(event):
 
     print(f"🔗 تم العثور على {len(links)} رابط، جاري المعالجة...")
     # ... بقية الكود الخاص بـ Gemini والنشر
+# اجعل البوت يراقب كل شيء بدون تحديد 'me' مؤقتاً للتأكد من العمل
+@client.on(events.NewMessage) 
+async def handler(event):
+    # طباعة في السجلات لنتأكد أن البوت استلم شيئاً
+    print(f"📩 وصلت رسالة جديدة: {event.raw_text}")
 
+    if event.raw_text and 'aliexpress' in event.raw_text.lower():
+        print("✅ تم العثور على رابط AliExpress!")
+        
+        # استخراج الرابط من النص
+        links = re.findall(r'https?://[^\s]+', event.raw_text)
+        if not links: return
+        link = links[0]
+        
+        # تحويل الرابط لرابطك الربحي
+        aff_link = f"https://s.click.aliexpress.com/deep_link.htm?aff_short_key={MY_SHORT_KEY}&dl_target_url={link}"
+        
+        # صياغة المنشور عبر Gemini
+        try:
+            prompt = f"Write a catchy English marketing post for this product: {link}. Include emojis."
+            response = model.generate_content(prompt)
+            final_text = f"{response.text}\n\n🛒 Buy here: {aff_link}"
+            
+            # النشر في القناة
+            await client.send_message(CHANNEL_ID, final_text, file=event.media)
+            print("🚀 تم النشر في القناة بنجاح!")
+        except Exception as e:
+            print(f"❌ خطأ أثناء النشر: {e}")
