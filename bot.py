@@ -116,3 +116,9 @@ async def handler(event):
             print("🚀 تم النشر في القناة بنجاح!")
         except Exception as e:
             print(f"❌ خطأ أثناء النشر: {e}")
+async def main():
+    await client.start()
+    # هذه الرسالة ستُرسل لك فور تشغيل البوت لتتأكد أنه اتصل بحسابك
+    await client.send_message('me', "✅ أنا أعمل الآن وأراقب روابط AliExpress!")
+    print("Bot is Started Successfully!")
+    await client.run_until_disconnected()
