@@ -31,7 +31,7 @@ GEMINI_KEY = os.environ.get('GEMINI_KEY')
 
 MY_SHORT_KEY = "Zx22cv00bnm" # كود الربح الخاص بك
 PRICE_BOT_LINK = "https://t.me/Aliprice_bot" # رابط بوت التخفيضات
-MY_CHANNEL_ID = "@your_channel_username" # يوزر قناتك (التي سينشر فيها)
+MY_CHANNEL_ID = os.environ.get('CHANNEL_ID')
 SOURCE_CHANNELS = ['@channel1', '@channel2'] # يوزرات القنوات التي ستراقبها
 
 # --- 3. تهيئة المحركات ---
